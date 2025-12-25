@@ -1,0 +1,51 @@
+/* Nostr Event Block Styles */
+.nostr-event-block {
+  font-family: var(--font-text);
+}
+
+.nostr-event-error {
+  color: var(--text-error);
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  margin: 8px 0;
+  background-color: var(--background-primary);
+}
+
+/* Relay List Styles */
+.relay-list {
+  margin-bottom: 1em;
+}
+
+.relay-list .setting-item {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 12px;
+}
+
+.relay-list .setting-item:first-child {
+  border-top: none;
+}
+
+/* Loading State */
+.nostr-loading {
+  display: inline-block;
+  animation: nostr-spin 1s linear infinite;
+}
+
+@keyframes nostr-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Dark mode adjustments */
+.theme-dark .nostr-event-block {
+  border-color: var(--background-modifier-border-hover);
+}
+
+.theme-dark .nostr-event-content-nostr {
+  background-color: var(--background-modifier-border);
+}

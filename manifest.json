@@ -1,0 +1,10 @@
+{
+  "id": "nostr-event-viewer",
+  "name": "Nostr Event Viewer",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "View and save Nostr events in your vault",
+  "author": "Your Name",
+  "authorUrl": "https://github.com/yourusername",
+  "isDesktopOnly": true
+}
