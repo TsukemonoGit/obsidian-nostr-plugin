@@ -26,7 +26,6 @@ interface SavedEventData {
   metadata: {
     saved_at: string;
     relay: string;
-    original_ref: string;
   };
 }
 
@@ -334,9 +333,24 @@ export default class NostrPlugin extends Plugin {
       }
 
       const content = await this.app.vault.adapter.read(filepath);
-      const savedData: SavedEventData = JSON.parse(content);
+      const data = JSON.parse(content);
+      const stat = await this.app.vault.adapter.stat(filepath);
 
-      return savedData;
+      // Legacy check
+      if (data.event && data.metadata) {
+          return data;
+      }
+
+      // Raw event
+      const event = data as NostrEvent;
+      return {
+          event: event,
+          metadata: {
+              saved_at: new Date(event.created_at * 1000).toISOString(),
+              relay: '' // Relay info lost in raw mode
+          }
+      };
+
     } catch (error) {
       console.error(`Failed to load event from local: ${eventId}`, error);
       return null;
@@ -359,14 +373,26 @@ export default class NostrPlugin extends Plugin {
             
             try {
                 const content = await this.app.vault.adapter.read(filepath);
+                const stat = await this.app.vault.adapter.stat(filepath);
                 const data = JSON.parse(content);
                  
-                // Map to SavedEventItem structure
+                let event: NostrEvent;
+                let relay = '';
+                
+                // Check if legacy wrapper
                 if (data.event && data.metadata) {
+                    event = data.event;
+                    relay = data.metadata.relay;
+                } else {
+                    // Raw event
+                    event = data as NostrEvent;
+                }
+
+                if (event && event.id) {
                     events.push({
-                        event: data.event,
-                        relay: data.metadata.relay || '',
-                        saved_at: data.metadata.saved_at,
+                        event: event,
+                        relay: relay,
+                        saved_at: new Date(event.created_at * 1000).toISOString(),
                         filepath: filepath,
                         filename: filepath.split('/').pop() || ''
                     });
@@ -489,20 +515,11 @@ export default class NostrPlugin extends Plugin {
       return;
     }
 
-    // 保存データ作成
-    const saveData: SavedEventData = {
-      event,
-      metadata: {
-        saved_at: new Date().toISOString(),
-        relay,
-        original_ref: eventId,
-      },
-    };
-
     try {
+      // Save raw event JSON
       await this.app.vault.adapter.write(
         filepath,
-        JSON.stringify(saveData, null, 2)
+        JSON.stringify(event, null, 2)
       );
       new Notice(`Event saved: ${eventId.slice(0, 8)}`);
       return true;
