@@ -185,16 +185,80 @@ export default class NostrPlugin extends Plugin {
 
           // Svelteコンポーネントマウント
           // Svelteコンポーネントマウント
-          mount(NostrEventBlock, {
+          // Svelteコンポーネントマウント
+          const block = mount(NostrEventBlock, {
             target: container,
             props: {
               event,
               relay,
+              isSaved: savedEvent !== null,
               onSave: async () => {
                 await this.saveEvent(event, relay, eventId);
+                // 更新のために再度マウントし直すか、propを更新する
+                // Svelte 5のmountは返り値にアクセサがあるかわからないが、
+                // 簡易的にUIを更新するためにコンポーネントを再作成する手もあるが
+                // ここではreactive propの更新が理想。
+                // ただしmount関数が返すインターフェースが不明確なので
+                // 一旦、処理完了後にprocessedNodesから削除して再処理させるか、
+                // あるいはstate管理が必要。
+                // 暫定処置として、処理成功後にテキストノードがあった場所を再処理させるのは難しい。
+                // 今回はpropsを直接更新できないので、Noticeを出してリロードを促すか...
+                // いや、Svelte 5なら $state で管理された値を外からいじるのは難しい。
+                // シンプルにコンポーネント内で完結させるべきだが、
+                // ここは isSaved を prop として渡しているので、親側で知る由もない。
+                // 
+                // 修正: mountの返り値を使ってpropを更新できるならするが、
+                // ここではシンプルに、コンポーネントをunmountしてmountしなおすのが確実。
+                // しかしunmount APIがimportされていない。
+                // 
+                // なので、NostrEventBlock内に状態を持たせる形にしたほうがよい。
+                // しかし今回は外から isSaved を渡している。
+                // NostrEventBlock 内で bind:isSaved にできればいいが...
+                //
+                // とりあえず、コールバック内で再描画をトリガーする。
+                // コンテナの中身をクリアして再マウントする。
+                container.innerHTML = '';
+                 mount(NostrEventBlock, {
+                    target: container,
+                    props: {
+                        event,
+                        relay,
+                        isSaved: true,
+                         onSave: async () => { await this.saveEvent(event, relay, eventId); refresh(true); },
+                         onDelete: async () => { await this.deleteEvent(eventId); refresh(false); }
+                    }
+                });
               },
+               onDelete: async () => {
+                await this.deleteEvent(eventId);
+                 container.innerHTML = '';
+                 mount(NostrEventBlock, {
+                    target: container,
+                    props: {
+                        event,
+                        relay,
+                        isSaved: false,
+                         onSave: async () => { await this.saveEvent(event, relay, eventId); refresh(true); },
+                         onDelete: async () => { await this.deleteEvent(eventId); refresh(false); }
+                    }
+                });
+              }
             },
           });
+
+          const refresh = (saved: boolean) => {
+             container.innerHTML = '';
+             mount(NostrEventBlock, {
+                target: container,
+                props: {
+                    event,
+                    relay,
+                    isSaved: saved,
+                    onSave: async () => { await this.saveEvent(event, relay, eventId); refresh(true); },
+                    onDelete: async () => { await this.deleteEvent(eventId); refresh(false); }
+                }
+            });
+          };
 
           // 処理済みマーク
           this.processedNodes.add(textNode);
@@ -361,9 +425,30 @@ export default class NostrPlugin extends Plugin {
         JSON.stringify(saveData, null, 2)
       );
       new Notice(`Event saved: ${eventId.slice(0, 8)}`);
+      return true;
     } catch (error) {
       console.error("Failed to save event:", error);
       new Notice(`Failed to save event: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async deleteEvent(eventId: string) {
+    const folder = this.settings.saveFolder;
+    const filename = `${eventId}.json`;
+    const filepath = `${folder}/${filename}`;
+
+    try {
+        const fileExists = await this.app.vault.adapter.exists(filepath);
+        if (fileExists) {
+             await this.app.vault.adapter.remove(filepath);
+             new Notice(`Event deleted: ${eventId.slice(0, 8)}`);
+             return true;
+        }
+    } catch (error) {
+        console.error("Failed to delete event:", error);
+        new Notice(`Failed to delete event: ${error.message}`);
+        throw error;
     }
   }
 }
