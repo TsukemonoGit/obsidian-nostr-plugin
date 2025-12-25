@@ -1,4 +1,4 @@
-import { Plugin, Notice, type MarkdownPostProcessorContext } from "obsidian";
+import { Plugin, Notice, type MarkdownPostProcessorContext, WorkspaceLeaf } from "obsidian";
 import { mount } from "svelte";
 import { NIP19SubType, parseContent } from "@konemono/nostr-content-parser";
 import { nip19 } from "nostr-tools";
@@ -7,6 +7,7 @@ import { verifier } from "rx-nostr-crypto";
 import type { NostrEvent } from "nostr-tools";
 import NostrEventBlock from "./src/components/NostrEventBlock.svelte";
 import { NostrSettingTab } from "./settings";
+import { SavedEventsView, VIEW_TYPE_SAVED_EVENTS } from "./src/views/SavedEventsView";
 
 interface RelayConfig {
   url: string;
@@ -51,22 +52,35 @@ export default class NostrPlugin extends Plugin {
   private processedNodes: WeakSet<Node> = new WeakSet();
 
   async onload() {
-    /*  // モバイル環境チェック
-    if (this.app.isMobile) {
-      new Notice("Nostr Plugin: Mobile not supported");
-      return;
-    } */
-
     await this.loadSettings();
 
     // rx-nostr初期化
     this.rxNostr = createRxNostr({ verifier });
     this.updateDefaultRelays();
 
+    // View登録
+    this.registerView(
+      VIEW_TYPE_SAVED_EVENTS,
+      (leaf) => new SavedEventsView(leaf, this)
+    );
+
+    // Ribbon Icon
+    this.addRibbonIcon("bookmark", "Saved Nostr Events", () => {
+      this.activateView();
+    });
+
     // Markdown post processor登録
     this.registerMarkdownPostProcessor(this.processNostrRefs.bind(this));
 
     // コマンド登録
+    this.addCommand({
+      id: "open-saved-events-view",
+      name: "Open Saved Events View",
+      callback: () => {
+        this.activateView();
+      },
+    });
+
     this.addCommand({
       id: "reload-current-event",
       name: "Reload current event",
@@ -90,6 +104,32 @@ export default class NostrPlugin extends Plugin {
   onunload() {
     // クリーンアップ
     this.eventCache.clear();
+  }
+
+  async activateView() {
+    const { workspace } = this.app;
+
+    let leaf: WorkspaceLeaf | null = null;
+    const leaves = workspace.getLeavesOfType(VIEW_TYPE_SAVED_EVENTS);
+
+    if (leaves.length > 0) {
+      // A leaf with our view already exists, use that
+      leaf = leaves[0];
+    } else {
+      // Our view could not be found in the workspace, create a new leaf
+      // into the right sidebar
+      const rightLeaf = workspace.getRightLeaf(false);
+      if (rightLeaf) {
+          leaf = rightLeaf;
+          await leaf.setViewState({ type: VIEW_TYPE_SAVED_EVENTS, active: true });
+      }
+    }
+
+    // "Reveal" the leaf in case it is in a collapsed sidebar
+    // "Reveal" the leaf in case it is in a collapsed sidebar
+    if (leaf) {
+      workspace.revealLeaf(leaf);
+    }
   }
 
   async loadSettings() {
@@ -300,6 +340,46 @@ export default class NostrPlugin extends Plugin {
     } catch (error) {
       console.error(`Failed to load event from local: ${eventId}`, error);
       return null;
+    }
+  }
+
+  async getSavedEvents(): Promise<any[]> {
+    const folder = this.settings.saveFolder;
+    try {
+        const folderExists = await this.app.vault.adapter.exists(folder);
+        if (!folderExists) {
+            return [];
+        }
+
+        const files = await this.app.vault.adapter.list(folder);
+        const events = [];
+
+        for (const filepath of files.files) {
+            if (!filepath.endsWith('.json')) continue;
+            
+            try {
+                const content = await this.app.vault.adapter.read(filepath);
+                const data = JSON.parse(content);
+                 
+                // Map to SavedEventItem structure
+                if (data.event && data.metadata) {
+                    events.push({
+                        event: data.event,
+                        relay: data.metadata.relay || '',
+                        saved_at: data.metadata.saved_at,
+                        filepath: filepath,
+                        filename: filepath.split('/').pop() || ''
+                    });
+                }
+            } catch (e) {
+                console.warn(`Failed to parse saved event: ${filepath}`, e);
+            }
+        }
+
+        return events;
+    } catch (error) {
+        console.error("Failed to list saved events:", error);
+        return [];
     }
   }
 
