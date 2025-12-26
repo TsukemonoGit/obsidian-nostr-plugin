@@ -180,3 +180,9 @@ MIT
 - NIP-04/44 暗号化メッセージ対応
 - 画像等の添付ファイル表示
 - イベント検索機能
+
+----
+![](https://share.yabu.me/84b0c46ab699ac35eb2ca286470b85e081db2087cdef63932236c397417782f5/2a09ceb1786a62288d186c476d2970bd28707a1bdcfbb426b8ecf3c1bb587d6b.webp)
+
+![](https://share.yabu.me/84b0c46ab699ac35eb2ca286470b85e081db2087cdef63932236c397417782f5/00816e8077658548dd8ef479f40bb0cc3c41027f75001dff36557113bf46562d.webp)
+)
