@@ -40,7 +40,17 @@ export class SavedEventsView extends ItemView {
         },
         saveEvent: async (event: any, relay: string, id: string) => {
             return !!(await this.plugin.saveEvent(event, relay, id));
-        }
+        },
+        getAuthorName: (pubkey: string) => {
+            return this.plugin.contactCache.get(pubkey);
+        },
+        onEditName: async (pubkey: string, currentName: string) => {
+            const newName = await this.plugin.openNameEditModal(pubkey, currentName);
+            if (newName) {
+                await this.plugin.addContact(pubkey, newName);
+            }
+        },
+        webClientUrlTemplate: this.plugin.settings.webClientUrlTemplate
       },
     });
   }

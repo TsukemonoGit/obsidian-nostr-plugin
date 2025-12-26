@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import type { NostrEvent } from "nostr-tools";
+    import { nip19 } from "nostr-tools";
     import NostrEventBlock from "./NostrEventBlock.svelte";
     import { Notice } from "obsidian";
 
@@ -20,9 +21,19 @@
             relay: string,
             id: string,
         ) => Promise<boolean>;
+        getAuthorName: (pubkey: string) => string | undefined;
+        onEditName: (pubkey: string, currentName: string) => Promise<void>;
+        webClientUrlTemplate: string;
     }
 
-    let { loadEvents, deleteEvent, saveEvent }: Props = $props();
+    let {
+        loadEvents,
+        deleteEvent,
+        saveEvent,
+        getAuthorName,
+        onEditName,
+        webClientUrlTemplate,
+    }: Props = $props();
 
     let events = $state<SavedEventItem[]>([]);
     let loading = $state(false);
@@ -95,8 +106,27 @@
                     event={item.event}
                     relay={item.relay}
                     isSaved={true}
+                    authorName={getAuthorName(item.event.pubkey)}
+                    webClientUrl={webClientUrlTemplate.replace(
+                        "{id}",
+                        nip19.neventEncode({
+                            id: item.event.id,
+                            relays:
+                                item.relay && item.relay.startsWith("ws")
+                                    ? [item.relay]
+                                    : [],
+                        }),
+                    )}
                     onDelete={() => handleDelete(item)}
                     onSave={() => handleSave(item)}
+                    onEditName={async () => {
+                        await onEditName(
+                            item.event.pubkey,
+                            getAuthorName(item.event.pubkey) || "",
+                        );
+                        // Force update
+                        events = [...events];
+                    }}
                 />
             </div>
         {/each}

@@ -1,4 +1,5 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, Notice } from "obsidian";
+import { nip19 } from "nostr-tools";
 import type NostrPlugin from "./main";
 
 export class NostrSettingTab extends PluginSettingTab {
@@ -52,6 +53,97 @@ export class NostrSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+
+    // Web Client URL 設定
+    new Setting(containerEl)
+      .setName("Web Client URL Template")
+      .setDesc("URL template to open events in a web client. Use {id} as a placeholder.")
+      .addText((text) =>
+        text
+          .setPlaceholder("https://njump.me/{id}")
+          .setValue(this.plugin.settings.webClientUrlTemplate)
+          .onChange(async (value) => {
+            this.plugin.settings.webClientUrlTemplate = value || "https://njump.me/{id}";
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // My Pubkey 設定
+    new Setting(containerEl)
+      .setName("My Pubkey")
+      .setDesc("Your pubkey (hex or npub) to fetch contacts/petnames.")
+      .addText((text) =>
+        text
+          .setPlaceholder("npub1...")
+          .setValue(this.plugin.settings.myPubkey)
+          .onChange(async (value) => {
+            this.plugin.settings.myPubkey = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // Contacts Management Section
+    containerEl.createEl("h3", { text: "Contacts Management" });
+    containerEl.createEl("p", {
+      text: "Manage display names for Nostr users. You can import from your follow list (Kind 3) or add them manually.",
+      cls: "setting-item-description",
+    });
+
+    // Download from Kind 3 Button
+    new Setting(containerEl)
+      .setName("Import from Kind 3")
+      .setDesc("Fetch contacts from your Kind 3 event (requires My Pubkey to be set above)")
+      .addButton((button) =>
+        button.setButtonText("Import").onClick(async () => {
+          button.setDisabled(true);
+          button.setButtonText("Importing...");
+          await this.plugin.downloadContacts();
+          button.setDisabled(false);
+          button.setButtonText("Import");
+          this.display();
+        })
+      );
+
+    // Add Manual Contact
+    const addContactSetting = new Setting(containerEl)
+      .setName("Add Manual Contact")
+      .setDesc("Add a specific public key and name mapping");
+    
+    let newPubkey = "";
+    let newName = "";
+
+    addContactSetting.addText((text) =>
+      text.setPlaceholder("Pubkey (hex or npub)").onChange((value) => (newPubkey = value))
+    );
+    addContactSetting.addText((text) =>
+      text.setPlaceholder("Name").onChange((value) => (newName = value))
+    );
+    addContactSetting.addButton((button) =>
+      button.setButtonText("Add").setCta().onClick(async () => {
+        if (newPubkey && newName) {
+           let hex = newPubkey;
+           if (newPubkey.startsWith("npub")) {
+               try {
+                   const decoded = nip19.decode(newPubkey);
+                   if (decoded.type === 'npub') {
+                       hex = decoded.data as string;
+                   }
+               } catch (e) {
+                   new Notice("Invalid npub");
+                   return;
+               }
+           }
+           await this.plugin.addContact(hex, newName);
+           this.display();
+        } else {
+            new Notice("Please enter both pubkey and name");
+        }
+      })
+    );
+
+    // Contacts List
+    const contactListDiv = containerEl.createDiv("contact-list");
+    this.displayContacts(contactListDiv);
 
     // リレー設定ヘッダー
     containerEl.createEl("h3", { text: "Default Relays" });
@@ -146,6 +238,46 @@ export class NostrSettingTab extends PluginSettingTab {
             })
         );
       }
+    });
+  }
+
+  displayContacts(container: HTMLElement): void {
+    container.empty();
+    if (this.plugin.contactCache.size === 0) {
+      container.createEl("p", {
+        text: "No contacts added yet.",
+        cls: "setting-item-description",
+      });
+      return;
+    }
+
+    // Header for list
+    container.createEl("h4", { text: "Existing Contacts" });
+
+    this.plugin.contactCache.forEach((name, pubkey) => {
+      new Setting(container)
+        .setName(name)
+        .setDesc(`${pubkey.slice(0, 10)}...${pubkey.slice(-10)}`)
+        .addText((text) =>
+          text
+            .setValue(name)
+            .setPlaceholder("Name")
+            .onChange(async (value) => {
+              if (value) {
+                this.plugin.contactCache.set(pubkey, value);
+                await this.plugin.saveContacts();
+              }
+            })
+        )
+        .addButton((button) =>
+          button
+            .setButtonText("Delete")
+            .setWarning()
+            .onClick(async () => {
+              await this.plugin.deleteContact(pubkey);
+              this.display();
+            })
+        );
     });
   }
 }

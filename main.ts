@@ -1,4 +1,4 @@
-import { Plugin, Notice, type MarkdownPostProcessorContext, WorkspaceLeaf } from "obsidian";
+import { Plugin, Notice, type MarkdownPostProcessorContext, WorkspaceLeaf, Modal, Setting, App } from "obsidian";
 import { mount } from "svelte";
 import { NIP19SubType, parseContent } from "@konemono/nostr-content-parser";
 import { nip19 } from "nostr-tools";
@@ -19,6 +19,8 @@ interface NostrPluginSettings {
   relays: RelayConfig[];
   overwriteExisting: boolean;
   renderNostrLinks: boolean;
+  webClientUrlTemplate: string;
+  myPubkey: string;
 }
 
 interface SavedEventData {
@@ -38,6 +40,8 @@ const DEFAULT_SETTINGS: NostrPluginSettings = {
   ],
   overwriteExisting: false,
   renderNostrLinks: true,
+  webClientUrlTemplate: "https://njump.me/{id}",
+  myPubkey: "",
 };
 
 export default class NostrPlugin extends Plugin {
@@ -88,21 +92,168 @@ export default class NostrPlugin extends Plugin {
       },
     });
 
+    // deleted extra line
+
     this.addCommand({
-      id: "save-current-event",
-      name: "Save current event",
-      callback: () => {
-        new Notice("Save functionality not yet implemented");
-      },
+        id: "open-saved-events-view",
+        name: "Open Saved Events View",
+        callback: () => {
+            this.activateView();
+        }
+    });
+
+    this.addCommand({
+        id: "download-contacts",
+        name: "Download Contacts (Kind 3)",
+        callback: async () => {
+            await this.downloadContacts();
+        }
     });
 
     // 設定タブ追加
     this.addSettingTab(new NostrSettingTab(this.app, this));
+
+    // コンタクト読み込み
+    await this.loadContacts();
   }
 
   onunload() {
     // クリーンアップ
     this.eventCache.clear();
+  }
+
+  // Contact Cache: pubkey -> petname
+  contactCache: Map<string, string> = new Map();
+
+  async loadContacts() {
+      const path = `${this.manifest.dir}/contacts.json`;
+      try {
+          const exists = await this.app.vault.adapter.exists(path);
+          if (exists) {
+              const content = await this.app.vault.adapter.read(path);
+              const contacts = JSON.parse(content);
+              this.contactCache = new Map(Object.entries(contacts));
+              console.log(`Loaded ${this.contactCache.size} contacts.`);
+          }
+      } catch (e) {
+          console.warn("Failed to load contacts", e);
+      }
+  }
+
+  async saveContacts() {
+      const path = `${this.manifest.dir}/contacts.json`;
+      try {
+          const contactsObj = Object.fromEntries(this.contactCache);
+          await this.app.vault.adapter.write(path, JSON.stringify(contactsObj, null, 2));
+      } catch (e) {
+          console.error("Failed to save contacts", e);
+          new Notice("Failed to save contacts");
+      }
+  }
+
+  async addContact(pubkey: string, name: string) {
+      this.contactCache.set(pubkey, name);
+      await this.saveContacts();
+      new Notice(`Added contact: ${name}`);
+  }
+
+  async deleteContact(pubkey: string) {
+      const name = this.contactCache.get(pubkey);
+      this.contactCache.delete(pubkey);
+      await this.saveContacts();
+      if (name) {
+          new Notice(`Deleted contact: ${name}`);
+      }
+  }
+
+  openNameEditModal(pubkey: string, currentName: string): Promise<string | null> {
+      return new Promise((resolve) => {
+          new NameEditModal(this.app, currentName, (result) => {
+              resolve(result);
+          }).open();
+      });
+  }
+
+  async downloadContacts() {
+      const myPubkey = this.settings.myPubkey;
+      if (!myPubkey) {
+          new Notice("Please set your Pubkey in settings first.");
+          return;
+      }
+      
+      let pubkeyHex = myPubkey;
+      if (myPubkey.startsWith("npub")) {
+          try {
+              const decoded = nip19.decode(myPubkey);
+              if (decoded.type === 'npub') {
+                  pubkeyHex = decoded.data;
+              }
+          } catch (e) {
+              new Notice("Invalid npub");
+              return;
+          }
+      }
+
+      new Notice("Fetching contacts...");
+      try {
+        // We need Kind 3 specifically. Fetch logic:
+        const contacts = await this.fetchKind3(pubkeyHex);
+        
+        if (contacts) {
+            const contactMap: Record<string, string> = {};
+            for (const tag of contacts.tags) {
+                if (tag[0] === 'p' && tag[3]) {
+                    // tag: ["p", pubkey, relay, petname]
+                    contactMap[tag[1]] = tag[3];
+                }
+            }
+            
+            const path = `${this.manifest.dir}/contacts.json`;
+            await this.app.vault.adapter.write(path, JSON.stringify(contactMap, null, 2));
+            this.contactCache = new Map(Object.entries(contactMap));
+            new Notice(`Saved ${Object.keys(contactMap).length} contacts.`);
+        } else {
+            new Notice("Kind 3 event not found.");
+        }
+
+      } catch (e) {
+          console.error(e);
+          new Notice("Failed to download contacts.");
+      }
+  }
+
+  async fetchKind3(pubkey: string): Promise<NostrEvent | null> {
+       const relays = this.settings.relays.filter(r => r.enabled).map(r => r.url);
+       return new Promise((resolve, reject) => {
+          const rxReq = createRxForwardReq();
+          let resolved = false;
+    
+          const subscription = this.rxNostr
+            .use(rxReq, { relays })
+            .pipe(uniq())
+            .subscribe({
+              next: (packet: any) => {
+                if (packet.event.kind === 3 && packet.event.pubkey === pubkey && !resolved) {
+                  resolved = true;
+                  resolve(packet.event);
+                  subscription.unsubscribe();
+                }
+              },
+              error: (err: Error) => {
+                 // ignore
+              },
+            });
+    
+          rxReq.emit({ kinds: [3], authors: [pubkey], limit: 1 });
+    
+          setTimeout(() => {
+            if (!resolved) {
+              resolved = true;
+              subscription.unsubscribe();
+              resolve(null);
+            }
+          }, 5000);
+        });
   }
 
   async activateView() {
@@ -223,81 +374,46 @@ export default class NostrPlugin extends Plugin {
           textNode.parentNode?.insertBefore(container, textNode);
 
           // Svelteコンポーネントマウント
-          // Svelteコンポーネントマウント
-          // Svelteコンポーネントマウント
-          const block = mount(NostrEventBlock, {
-            target: container,
-            props: {
-              event,
-              relay,
-              isSaved: savedEvent !== null,
-              onSave: async () => {
-                await this.saveEvent(event, relay, eventId);
-                // 更新のために再度マウントし直すか、propを更新する
-                // Svelte 5のmountは返り値にアクセサがあるかわからないが、
-                // 簡易的にUIを更新するためにコンポーネントを再作成する手もあるが
-                // ここではreactive propの更新が理想。
-                // ただしmount関数が返すインターフェースが不明確なので
-                // 一旦、処理完了後にprocessedNodesから削除して再処理させるか、
-                // あるいはstate管理が必要。
-                // 暫定処置として、処理成功後にテキストノードがあった場所を再処理させるのは難しい。
-                // 今回はpropsを直接更新できないので、Noticeを出してリロードを促すか...
-                // いや、Svelte 5なら $state で管理された値を外からいじるのは難しい。
-                // シンプルにコンポーネント内で完結させるべきだが、
-                // ここは isSaved を prop として渡しているので、親側で知る由もない。
-                // 
-                // 修正: mountの返り値を使ってpropを更新できるならするが、
-                // ここではシンプルに、コンポーネントをunmountしてmountしなおすのが確実。
-                // しかしunmount APIがimportされていない。
-                // 
-                // なので、NostrEventBlock内に状態を持たせる形にしたほうがよい。
-                // しかし今回は外から isSaved を渡している。
-                // NostrEventBlock 内で bind:isSaved にできればいいが...
-                //
-                // とりあえず、コールバック内で再描画をトリガーする。
-                // コンテナの中身をクリアして再マウントする。
-                container.innerHTML = '';
-                 mount(NostrEventBlock, {
-                    target: container,
-                    props: {
-                        event,
-                        relay,
-                        isSaved: true,
-                         onSave: async () => { await this.saveEvent(event, relay, eventId); refresh(true); },
-                         onDelete: async () => { await this.deleteEvent(eventId); refresh(false); }
-                    }
-                });
-              },
-               onDelete: async () => {
-                await this.deleteEvent(eventId);
-                 container.innerHTML = '';
-                 mount(NostrEventBlock, {
-                    target: container,
-                    props: {
-                        event,
-                        relay,
-                        isSaved: false,
-                         onSave: async () => { await this.saveEvent(event, relay, eventId); refresh(true); },
-                         onDelete: async () => { await this.deleteEvent(eventId); refresh(false); }
-                    }
-                });
-              }
-            },
+          const nEventId = nip19.neventEncode({
+            id: event.id,
+            relays: relay && relay.startsWith("ws") ? [relay] : []
           });
+          const webClientUrl = this.settings.webClientUrlTemplate.replace("{id}", nEventId);
+          const authorName = this.contactCache.get(event.pubkey);
 
+          // Svelteコンポーネントマウント
           const refresh = (saved: boolean) => {
-             container.innerHTML = '';
-             mount(NostrEventBlock, {
-                target: container,
-                props: {
-                    event,
-                    relay,
-                    isSaved: saved,
-                    onSave: async () => { await this.saveEvent(event, relay, eventId); refresh(true); },
-                    onDelete: async () => { await this.deleteEvent(eventId); refresh(false); }
+            const currentName = this.contactCache.get(event.pubkey);
+            container.innerHTML = '';
+            mount(NostrEventBlock, {
+              target: container,
+              props: {
+                event,
+                relay,
+                webClientUrl,
+                authorName: currentName,
+                isSaved: saved,
+                onSave: async () => {
+                  await this.saveEvent(event, relay, eventId);
+                  refresh(true);
+                },
+                onDelete: async () => {
+                  await this.deleteEvent(eventId);
+                  refresh(false);
+                },
+                onEditName: async () => {
+                  const newName = await this.openNameEditModal(event.pubkey, currentName || "");
+                  if (newName) {
+                    await this.addContact(event.pubkey, newName);
+                    refresh(saved);
+                  }
                 }
+              }
             });
           };
+
+          // 初回マウント
+          refresh(savedEvent !== null);
 
           // 処理済みマーク
           this.processedNodes.add(textNode);
@@ -547,5 +663,47 @@ export default class NostrPlugin extends Plugin {
         new Notice(`Failed to delete event: ${error.message}`);
         throw error;
     }
+  }
+}
+
+class NameEditModal extends Modal {
+  result: string;
+  onSubmit: (result: string) => void;
+
+  constructor(app: App, currentName: string, onSubmit: (result: string) => void) {
+    super(app);
+    this.result = currentName;
+    this.onSubmit = onSubmit;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h2", { text: "Edit Name" });
+
+    new Setting(contentEl)
+      .setName("Display Name")
+      .addText((text) =>
+        text
+          .setValue(this.result)
+          .onChange((value) => {
+            this.result = value;
+          })
+      );
+
+    new Setting(contentEl)
+      .addButton((btn) =>
+        btn
+          .setButtonText("Save")
+          .setCta()
+          .onClick(() => {
+            this.close();
+            this.onSubmit(this.result);
+          })
+      );
+  }
+
+  onClose() {
+    let { contentEl } = this;
+    contentEl.empty();
   }
 }

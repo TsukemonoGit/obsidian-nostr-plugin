@@ -30,9 +30,9 @@
     disabled={processing}
   >
     {#if processing}
-      {isSaved ? "削除中..." : "保存中..."}
+      {isSaved ? "Deleting..." : "Saving..."}
     {:else}
-      {isSaved ? "削除" : "保存"}
+      {isSaved ? "Delete" : "Save"}
     {/if}
   </button>
 
