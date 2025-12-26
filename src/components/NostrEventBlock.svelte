@@ -34,7 +34,7 @@
 </script>
 
 <div class="nostr-event-block">
-  <EventContent content={event.content} />
+  <EventContent content={event.content} tags={event.tags} />
 
   <div class="nostr-event-meta">
     <span class="meta-item" title={npub}>{shortPubkey}</span>
