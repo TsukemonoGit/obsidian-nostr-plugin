@@ -342,28 +342,24 @@ export default class NostrPlugin extends Plugin {
 
       const parsed = parseContent(text);
 
-      const nostrRefs = parsed.filter(
-        (token) =>
-          token.type === "nip19" &&
-          token.metadata &&
-          (token.metadata.subType === NIP19SubType.NEVENT ||
-            token.metadata.subType === NIP19SubType.NOTE),
-      );
+      for (const token of parsed) {
+        // 型ガードで絞り込み
+        if (token.type !== "nip19") continue;
 
-      if (nostrRefs.length === 0) continue;
+        const { subType, plainNip19 } = token.metadata;
 
-      for (const ref of nostrRefs) {
+        if (subType !== NIP19SubType.NEVENT && subType !== NIP19SubType.NOTE) {
+          continue;
+        }
+
         try {
-          const plainNip19 = ref.metadata!.plainNip19 as string;
-
-          // eventIdを抽出
           const decoded = nip19.decode(plainNip19);
           let eventId: string;
 
           if (decoded.type === "nevent") {
             eventId = decoded.data.id;
           } else if (decoded.type === "note") {
-            eventId = decoded.data;
+            eventId = decoded.data as string;
           } else {
             continue;
           }

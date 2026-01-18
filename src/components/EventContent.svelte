@@ -21,7 +21,7 @@
     {#if token.type === "text"}
       <span>{token.content}</span>
     {:else if token.type === "url"}
-      {#if isImageUrl(token.content)}
+      {#if token.metadata?.type === "image" || isImageUrl(token.content)}
         <div class="nostr-media-container">
           <img
             src={token.content}
@@ -43,7 +43,7 @@
     {:else if token.type === TokenType.NIP19}
       {@const url = (webClientUrl || "https://njump.me/{id}").replace(
         "{id}",
-        token.metadata!.plainNip19 as string,
+        token.metadata.plainNip19,
       )}
       <a
         href={url}
@@ -51,64 +51,28 @@
         target="_blank"
         rel="noopener noreferrer"
       >
-        nostr:{token.metadata!.plainNip19}
+        nostr:{token.metadata.plainNip19}
       </a>
     {:else if token.type === "hashtag"}
       <span class="nostr-event-content-hashtag">
-        #{token.content}
+        {token.content}
       </span>
     {:else if token.type === TokenType.CUSTOM_EMOJI}
-      <img
-        src={token.metadata!.url as string}
-        alt={token.content}
-        title={token.content}
-        class="nostr-custom-emoji"
-        loading="lazy"
-      />
+      <!-- 修正: hasMetadataで分岐 -->
+      {#if token.metadata.hasMetadata}
+        <img
+          src={token.metadata.url}
+          alt={token.content}
+          title={token.content}
+          class="nostr-custom-emoji"
+          loading="lazy"
+        />
+      {:else}
+        <!-- タグなしの場合はテキストとして表示 -->
+        <span title="Unknown emoji">{token.content}</span>
+      {/if}
     {:else}
       {token.content || ""}
     {/if}
   {/each}
 </div>
-
-<style>
-  .nostr-event-content {
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    line-height: 1.4;
-    margin-bottom: 8px;
-  }
-
-  .nostr-event-content-link {
-    color: var(--link-color);
-    text-decoration: underline;
-  }
-
-  .nostr-event-content-link:hover {
-    color: var(--link-color-hover);
-  }
-
-  .nostr-event-content-hashtag {
-    color: var(--text-accent);
-    font-weight: 500;
-  }
-
-  .nostr-media-container {
-    margin: 8px 0;
-  }
-
-  .nostr-event-image {
-    max-width: 100%;
-    max-height: 500px;
-    border-radius: 8px;
-    display: block;
-  }
-
-  .nostr-custom-emoji {
-    height: 1.6em;
-    width: auto;
-    vertical-align: middle;
-    margin: 0;
-    display: inline-block;
-  }
-</style>
