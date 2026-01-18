@@ -1,4 +1,12 @@
-import { Plugin, Notice, type MarkdownPostProcessorContext, WorkspaceLeaf, Modal, Setting, App } from "obsidian";
+import {
+  Plugin,
+  Notice,
+  type MarkdownPostProcessorContext,
+  WorkspaceLeaf,
+  Modal,
+  Setting,
+  App,
+} from "obsidian";
 import { mount } from "svelte";
 import { NIP19SubType, parseContent } from "@konemono/nostr-content-parser";
 import { nip19 } from "nostr-tools";
@@ -7,7 +15,10 @@ import { verifier } from "rx-nostr-crypto";
 import type { NostrEvent } from "nostr-tools";
 import NostrEventBlock from "./src/components/NostrEventBlock.svelte";
 import { NostrSettingTab } from "./settings";
-import { SavedEventsView, VIEW_TYPE_SAVED_EVENTS } from "./src/views/SavedEventsView";
+import {
+  SavedEventsView,
+  VIEW_TYPE_SAVED_EVENTS,
+} from "./src/views/SavedEventsView";
 
 interface RelayConfig {
   url: string;
@@ -64,7 +75,7 @@ export default class NostrPlugin extends Plugin {
     // View登録
     this.registerView(
       VIEW_TYPE_SAVED_EVENTS,
-      (leaf) => new SavedEventsView(leaf, this)
+      (leaf) => new SavedEventsView(leaf, this),
     );
 
     // Ribbon Icon
@@ -95,19 +106,19 @@ export default class NostrPlugin extends Plugin {
     // deleted extra line
 
     this.addCommand({
-        id: "open-saved-events-view",
-        name: "Open Saved Events View",
-        callback: () => {
-            this.activateView();
-        }
+      id: "open-saved-events-view",
+      name: "Open Saved Events View",
+      callback: () => {
+        this.activateView();
+      },
     });
 
     this.addCommand({
-        id: "download-contacts",
-        name: "Download Contacts (Kind 3)",
-        callback: async () => {
-            await this.downloadContacts();
-        }
+      id: "download-contacts",
+      name: "Download Contacts (Kind 3)",
+      callback: async () => {
+        await this.downloadContacts();
+      },
     });
 
     // 設定タブ追加
@@ -126,134 +137,148 @@ export default class NostrPlugin extends Plugin {
   contactCache: Map<string, string> = new Map();
 
   async loadContacts() {
-      const path = `${this.manifest.dir}/contacts.json`;
-      try {
-          const exists = await this.app.vault.adapter.exists(path);
-          if (exists) {
-              const content = await this.app.vault.adapter.read(path);
-              const contacts = JSON.parse(content);
-              this.contactCache = new Map(Object.entries(contacts));
-              console.log(`Loaded ${this.contactCache.size} contacts.`);
-          }
-      } catch (e) {
-          console.warn("Failed to load contacts", e);
+    const path = `${this.manifest.dir}/contacts.json`;
+    try {
+      const exists = await this.app.vault.adapter.exists(path);
+      if (exists) {
+        const content = await this.app.vault.adapter.read(path);
+        const contacts = JSON.parse(content);
+        this.contactCache = new Map(Object.entries(contacts));
+        console.log(`Loaded ${this.contactCache.size} contacts.`);
       }
+    } catch (e) {
+      console.warn("Failed to load contacts", e);
+    }
   }
 
   async saveContacts() {
-      const path = `${this.manifest.dir}/contacts.json`;
-      try {
-          const contactsObj = Object.fromEntries(this.contactCache);
-          await this.app.vault.adapter.write(path, JSON.stringify(contactsObj, null, 2));
-      } catch (e) {
-          console.error("Failed to save contacts", e);
-          new Notice("Failed to save contacts");
-      }
+    const path = `${this.manifest.dir}/contacts.json`;
+    try {
+      const contactsObj = Object.fromEntries(this.contactCache);
+      await this.app.vault.adapter.write(
+        path,
+        JSON.stringify(contactsObj, null, 2),
+      );
+    } catch (e) {
+      console.error("Failed to save contacts", e);
+      new Notice("Failed to save contacts");
+    }
   }
 
   async addContact(pubkey: string, name: string) {
-      this.contactCache.set(pubkey, name);
-      await this.saveContacts();
-      new Notice(`Added contact: ${name}`);
+    this.contactCache.set(pubkey, name);
+    await this.saveContacts();
+    new Notice(`Added contact: ${name}`);
   }
 
   async deleteContact(pubkey: string) {
-      const name = this.contactCache.get(pubkey);
-      this.contactCache.delete(pubkey);
-      await this.saveContacts();
-      if (name) {
-          new Notice(`Deleted contact: ${name}`);
-      }
+    const name = this.contactCache.get(pubkey);
+    this.contactCache.delete(pubkey);
+    await this.saveContacts();
+    if (name) {
+      new Notice(`Deleted contact: ${name}`);
+    }
   }
 
-  openNameEditModal(pubkey: string, currentName: string): Promise<string | null> {
-      return new Promise((resolve) => {
-          new NameEditModal(this.app, currentName, (result) => {
-              resolve(result);
-          }).open();
-      });
+  openNameEditModal(
+    pubkey: string,
+    currentName: string,
+  ): Promise<string | null> {
+    return new Promise((resolve) => {
+      new NameEditModal(this.app, currentName, (result) => {
+        resolve(result);
+      }).open();
+    });
   }
 
   async downloadContacts() {
-      const myPubkey = this.settings.myPubkey;
-      if (!myPubkey) {
-          new Notice("Please set your Pubkey in settings first.");
-          return;
-      }
-      
-      let pubkeyHex = myPubkey;
-      if (myPubkey.startsWith("npub")) {
-          try {
-              const decoded = nip19.decode(myPubkey);
-              if (decoded.type === 'npub') {
-                  pubkeyHex = decoded.data;
-              }
-          } catch (e) {
-              new Notice("Invalid npub");
-              return;
-          }
-      }
+    const myPubkey = this.settings.myPubkey;
+    if (!myPubkey) {
+      new Notice("Please set your Pubkey in settings first.");
+      return;
+    }
 
-      new Notice("Fetching contacts...");
+    let pubkeyHex = myPubkey;
+    if (myPubkey.startsWith("npub")) {
       try {
-        // We need Kind 3 specifically. Fetch logic:
-        const contacts = await this.fetchKind3(pubkeyHex);
-        
-        if (contacts) {
-            const contactMap: Record<string, string> = {};
-            for (const tag of contacts.tags) {
-                if (tag[0] === 'p' && tag[3]) {
-                    // tag: ["p", pubkey, relay, petname]
-                    contactMap[tag[1]] = tag[3];
-                }
-            }
-            
-            const path = `${this.manifest.dir}/contacts.json`;
-            await this.app.vault.adapter.write(path, JSON.stringify(contactMap, null, 2));
-            this.contactCache = new Map(Object.entries(contactMap));
-            new Notice(`Saved ${Object.keys(contactMap).length} contacts.`);
-        } else {
-            new Notice("Kind 3 event not found.");
+        const decoded = nip19.decode(myPubkey);
+        if (decoded.type === "npub") {
+          pubkeyHex = decoded.data;
+        }
+      } catch (e) {
+        new Notice("Invalid npub");
+        return;
+      }
+    }
+
+    new Notice("Fetching contacts...");
+    try {
+      // We need Kind 3 specifically. Fetch logic:
+      const contacts = await this.fetchKind3(pubkeyHex);
+
+      if (contacts) {
+        const contactMap: Record<string, string> = {};
+        for (const tag of contacts.tags) {
+          if (tag[0] === "p" && tag[3]) {
+            // tag: ["p", pubkey, relay, petname]
+            contactMap[tag[1]] = tag[3];
+          }
         }
 
-      } catch (e) {
-          console.error(e);
-          new Notice("Failed to download contacts.");
+        const path = `${this.manifest.dir}/contacts.json`;
+        await this.app.vault.adapter.write(
+          path,
+          JSON.stringify(contactMap, null, 2),
+        );
+        this.contactCache = new Map(Object.entries(contactMap));
+        new Notice(`Saved ${Object.keys(contactMap).length} contacts.`);
+      } else {
+        new Notice("Kind 3 event not found.");
       }
+    } catch (e) {
+      console.error(e);
+      new Notice("Failed to download contacts.");
+    }
   }
 
   async fetchKind3(pubkey: string): Promise<NostrEvent | null> {
-       const relays = this.settings.relays.filter(r => r.enabled).map(r => r.url);
-       return new Promise((resolve, reject) => {
-          const rxReq = createRxForwardReq();
-          let resolved = false;
-    
-          const subscription = this.rxNostr
-            .use(rxReq, { relays })
-            .pipe(uniq())
-            .subscribe({
-              next: (packet: any) => {
-                if (packet.event.kind === 3 && packet.event.pubkey === pubkey && !resolved) {
-                  resolved = true;
-                  resolve(packet.event);
-                  subscription.unsubscribe();
-                }
-              },
-              error: (err: Error) => {
-                 // ignore
-              },
-            });
-    
-          rxReq.emit({ kinds: [3], authors: [pubkey], limit: 1 });
-    
-          setTimeout(() => {
-            if (!resolved) {
+    const relays = this.settings.relays
+      .filter((r) => r.enabled)
+      .map((r) => r.url);
+    return new Promise((resolve, reject) => {
+      const rxReq = createRxForwardReq();
+      let resolved = false;
+
+      const subscription = this.rxNostr
+        .use(rxReq, { relays })
+        .pipe(uniq())
+        .subscribe({
+          next: (packet: any) => {
+            if (
+              packet.event.kind === 3 &&
+              packet.event.pubkey === pubkey &&
+              !resolved
+            ) {
               resolved = true;
+              resolve(packet.event);
               subscription.unsubscribe();
-              resolve(null);
             }
-          }, 5000);
+          },
+          error: (err: Error) => {
+            // ignore
+          },
         });
+
+      rxReq.emit({ kinds: [3], authors: [pubkey], limit: 1 });
+
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          subscription.unsubscribe();
+          resolve(null);
+        }
+      }, 5000);
+    });
   }
 
   async activateView() {
@@ -270,8 +295,8 @@ export default class NostrPlugin extends Plugin {
       // into the right sidebar
       const rightLeaf = workspace.getRightLeaf(false);
       if (rightLeaf) {
-          leaf = rightLeaf;
-          await leaf.setViewState({ type: VIEW_TYPE_SAVED_EVENTS, active: true });
+        leaf = rightLeaf;
+        await leaf.setViewState({ type: VIEW_TYPE_SAVED_EVENTS, active: true });
       }
     }
 
@@ -322,7 +347,7 @@ export default class NostrPlugin extends Plugin {
           token.type === "nip19" &&
           token.metadata &&
           (token.metadata.subType === NIP19SubType.NEVENT ||
-            token.metadata.subType === NIP19SubType.NOTE)
+            token.metadata.subType === NIP19SubType.NOTE),
       );
 
       if (nostrRefs.length === 0) continue;
@@ -373,18 +398,12 @@ export default class NostrPlugin extends Plugin {
           const container = createDiv();
           textNode.parentNode?.insertBefore(container, textNode);
 
-          // Svelteコンポーネントマウント
-          const nEventId = nip19.neventEncode({
-            id: event.id,
-            relays: relay && relay.startsWith("ws") ? [relay] : []
-          });
-          const webClientUrl = this.settings.webClientUrlTemplate.replace("{id}", nEventId);
-          const authorName = this.contactCache.get(event.pubkey);
+          const webClientUrl = this.settings.webClientUrlTemplate;
 
           // Svelteコンポーネントマウント
           const refresh = (saved: boolean) => {
             const currentName = this.contactCache.get(event.pubkey);
-            container.innerHTML = '';
+            container.innerHTML = "";
             mount(NostrEventBlock, {
               target: container,
               props: {
@@ -402,13 +421,16 @@ export default class NostrPlugin extends Plugin {
                   refresh(false);
                 },
                 onEditName: async () => {
-                  const newName = await this.openNameEditModal(event.pubkey, currentName || "");
+                  const newName = await this.openNameEditModal(
+                    event.pubkey,
+                    currentName || "",
+                  );
                   if (newName) {
                     await this.addContact(event.pubkey, newName);
                     refresh(saved);
                   }
-                }
-              }
+                },
+              },
             });
           };
 
@@ -454,19 +476,18 @@ export default class NostrPlugin extends Plugin {
 
       // Legacy check
       if (data.event && data.metadata) {
-          return data;
+        return data;
       }
 
       // Raw event
       const event = data as NostrEvent;
       return {
-          event: event,
-          metadata: {
-              saved_at: new Date(event.created_at * 1000).toISOString(),
-              relay: '' // Relay info lost in raw mode
-          }
+        event: event,
+        metadata: {
+          saved_at: new Date(event.created_at * 1000).toISOString(),
+          relay: "", // Relay info lost in raw mode
+        },
       };
-
     } catch (error) {
       console.error(`Failed to load event from local: ${eventId}`, error);
       return null;
@@ -476,57 +497,57 @@ export default class NostrPlugin extends Plugin {
   async getSavedEvents(): Promise<any[]> {
     const folder = this.settings.saveFolder;
     try {
-        const folderExists = await this.app.vault.adapter.exists(folder);
-        if (!folderExists) {
-            return [];
-        }
-
-        const files = await this.app.vault.adapter.list(folder);
-        const events = [];
-
-        for (const filepath of files.files) {
-            if (!filepath.endsWith('.json')) continue;
-            
-            try {
-                const content = await this.app.vault.adapter.read(filepath);
-                const stat = await this.app.vault.adapter.stat(filepath);
-                const data = JSON.parse(content);
-                 
-                let event: NostrEvent;
-                let relay = '';
-                
-                // Check if legacy wrapper
-                if (data.event && data.metadata) {
-                    event = data.event;
-                    relay = data.metadata.relay;
-                } else {
-                    // Raw event
-                    event = data as NostrEvent;
-                }
-
-                if (event && event.id) {
-                    events.push({
-                        event: event,
-                        relay: relay,
-                        saved_at: new Date(event.created_at * 1000).toISOString(),
-                        filepath: filepath,
-                        filename: filepath.split('/').pop() || ''
-                    });
-                }
-            } catch (e) {
-                console.warn(`Failed to parse saved event: ${filepath}`, e);
-            }
-        }
-
-        return events;
-    } catch (error) {
-        console.error("Failed to list saved events:", error);
+      const folderExists = await this.app.vault.adapter.exists(folder);
+      if (!folderExists) {
         return [];
+      }
+
+      const files = await this.app.vault.adapter.list(folder);
+      const events = [];
+
+      for (const filepath of files.files) {
+        if (!filepath.endsWith(".json")) continue;
+
+        try {
+          const content = await this.app.vault.adapter.read(filepath);
+          const stat = await this.app.vault.adapter.stat(filepath);
+          const data = JSON.parse(content);
+
+          let event: NostrEvent;
+          let relay = "";
+
+          // Check if legacy wrapper
+          if (data.event && data.metadata) {
+            event = data.event;
+            relay = data.metadata.relay;
+          } else {
+            // Raw event
+            event = data as NostrEvent;
+          }
+
+          if (event && event.id) {
+            events.push({
+              event: event,
+              relay: relay,
+              saved_at: new Date(event.created_at * 1000).toISOString(),
+              filepath: filepath,
+              filename: filepath.split("/").pop() || "",
+            });
+          }
+        } catch (e) {
+          console.warn(`Failed to parse saved event: ${filepath}`, e);
+        }
+      }
+
+      return events;
+    } catch (error) {
+      console.error("Failed to list saved events:", error);
+      return [];
     }
   }
 
   async fetchEvent(
-    neventOrNote: string
+    neventOrNote: string,
   ): Promise<{ event: NostrEvent; relay: string }> {
     // デコード
     const decoded = nip19.decode(neventOrNote);
@@ -574,7 +595,7 @@ export default class NostrPlugin extends Plugin {
 
   async fetchFromRelay(
     eventId: string,
-    relays: string[]
+    relays: string[],
   ): Promise<NostrEvent | null> {
     return new Promise((resolve, reject) => {
       const rxReq = createRxForwardReq();
@@ -635,7 +656,7 @@ export default class NostrPlugin extends Plugin {
       // Save raw event JSON
       await this.app.vault.adapter.write(
         filepath,
-        JSON.stringify(event, null, 2)
+        JSON.stringify(event, null, 2),
       );
       new Notice(`Event saved: ${eventId.slice(0, 8)}`);
       return true;
@@ -652,16 +673,16 @@ export default class NostrPlugin extends Plugin {
     const filepath = `${folder}/${filename}`;
 
     try {
-        const fileExists = await this.app.vault.adapter.exists(filepath);
-        if (fileExists) {
-             await this.app.vault.adapter.remove(filepath);
-             new Notice(`Event deleted: ${eventId.slice(0, 8)}`);
-             return true;
-        }
+      const fileExists = await this.app.vault.adapter.exists(filepath);
+      if (fileExists) {
+        await this.app.vault.adapter.remove(filepath);
+        new Notice(`Event deleted: ${eventId.slice(0, 8)}`);
+        return true;
+      }
     } catch (error) {
-        console.error("Failed to delete event:", error);
-        new Notice(`Failed to delete event: ${error.message}`);
-        throw error;
+      console.error("Failed to delete event:", error);
+      new Notice(`Failed to delete event: ${error.message}`);
+      throw error;
     }
   }
 }
@@ -670,7 +691,11 @@ class NameEditModal extends Modal {
   result: string;
   onSubmit: (result: string) => void;
 
-  constructor(app: App, currentName: string, onSubmit: (result: string) => void) {
+  constructor(
+    app: App,
+    currentName: string,
+    onSubmit: (result: string) => void,
+  ) {
     super(app);
     this.result = currentName;
     this.onSubmit = onSubmit;
@@ -680,26 +705,21 @@ class NameEditModal extends Modal {
     const { contentEl } = this;
     contentEl.createEl("h2", { text: "Edit Name" });
 
-    new Setting(contentEl)
-      .setName("Display Name")
-      .addText((text) =>
-        text
-          .setValue(this.result)
-          .onChange((value) => {
-            this.result = value;
-          })
-      );
+    new Setting(contentEl).setName("Display Name").addText((text) =>
+      text.setValue(this.result).onChange((value) => {
+        this.result = value;
+      }),
+    );
 
-    new Setting(contentEl)
-      .addButton((btn) =>
-        btn
-          .setButtonText("Save")
-          .setCta()
-          .onClick(() => {
-            this.close();
-            this.onSubmit(this.result);
-          })
-      );
+    new Setting(contentEl).addButton((btn) =>
+      btn
+        .setButtonText("Save")
+        .setCta()
+        .onClick(() => {
+          this.close();
+          this.onSubmit(this.result);
+        }),
+    );
   }
 
   onClose() {

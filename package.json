@@ -1,6 +1,6 @@
 {
   "name": "obsidian-nostr-plugin",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Nostr event viewer and saver for Obsidian",
   "main": "main.js",
   "scripts": {

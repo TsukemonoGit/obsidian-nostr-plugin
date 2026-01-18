@@ -4,9 +4,10 @@
   interface Props {
     content: string;
     tags?: string[][];
+    webClientUrl: string | undefined;
   }
 
-  let { content, tags = [] }: Props = $props();
+  let { content, tags = [], webClientUrl }: Props = $props();
 
   let tokens = $derived(parseContent(content, tags));
 
@@ -40,9 +41,18 @@
         </a>
       {/if}
     {:else if token.type === TokenType.NIP19}
-      <span class="nostr-event-content-nostr">
-        nostr:{token.content}
-      </span>
+      {@const url = (webClientUrl || "https://njump.me/{id}").replace(
+        "{id}",
+        token.metadata!.plainNip19 as string,
+      )}
+      <a
+        href={url}
+        class="nostr-event-content-link external-link"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        nostr:{token.metadata!.plainNip19}
+      </a>
     {:else if token.type === "hashtag"}
       <span class="nostr-event-content-hashtag">
         #{token.content}
@@ -76,15 +86,6 @@
 
   .nostr-event-content-link:hover {
     color: var(--link-color-hover);
-  }
-
-  .nostr-event-content-nostr {
-    color: var(--text-accent);
-    font-family: var(--font-monospace);
-    font-size: 0.9em;
-    background-color: var(--background-secondary);
-    padding: 2px 4px;
-    border-radius: 3px;
   }
 
   .nostr-event-content-hashtag {

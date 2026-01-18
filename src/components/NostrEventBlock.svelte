@@ -56,7 +56,7 @@
   </div>
 
   <div class="nostr-body">
-    <EventContent content={event.content} tags={event.tags} />
+    <EventContent content={event.content} tags={event.tags} {webClientUrl} />
   </div>
 
   <div class="nostr-footer">
@@ -64,37 +64,39 @@
       <span class="nostr-kind">Kind: {event.kind}</span>
     </div>
     <div class="nostr-actions">
-      {#if webClientUrl}
-        <!-- svelte-ignore a11y_invalid_attribute -->
-        <a
-          href={webClientUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          class="nostr-external-link"
-          title="Open in Web Client"
+      <!-- svelte-ignore a11y_invalid_attribute -->
+      <a
+        href={(webClientUrl || "https://njump.me/{id}").replace(
+          "{id}",
+          event.id,
+        )}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="nostr-external-link"
+        title="Open in Web Client"
+      >
+        <!-- Feather Icon: external-link -->
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          ><path
+            d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+          /><polyline points="15 3 21 3 21 9" /><line
+            x1="10"
+            y1="14"
+            x2="21"
+            y2="3"
+          /></svg
         >
-          <!-- Feather Icon: external-link -->
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            ><path
-              d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
-            /><polyline points="15 3 21 3 21 9" /><line
-              x1="10"
-              y1="14"
-              x2="21"
-              y2="3"
-            /></svg
-          >
-        </a>
-      {/if}
+      </a>
+
       <SaveButton onSave={handleAction} {isSaved} />
     </div>
   </div>
@@ -183,11 +185,5 @@
 
   .nostr-name {
     margin-right: 6px;
-  }
-
-  .nostr-pubkey-sub {
-    font-weight: normal;
-    color: var(--text-muted);
-    font-size: 0.9em;
   }
 </style>
